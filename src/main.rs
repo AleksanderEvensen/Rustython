@@ -1,5 +1,6 @@
 #![allow(unused_variables)]
 
+mod compiler;
 mod symboltree;
 mod utils;
 
