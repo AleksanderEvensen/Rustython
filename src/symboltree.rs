@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::collections::HashSet;
-use tree_sitter::{Parser, Tree, TreeCursor};
+use tree_sitter::{Tree, TreeCursor};
 
 #[derive(Debug, Clone, Default)]
 pub struct SymbolTree {
@@ -97,7 +97,7 @@ fn parse_block_symbols(
                     }
                 }
                 if cursor.node().kind() == "block" {
-                    let (mut fn_block_identifiers, fn_symbols) =
+                    let (fn_block_identifiers, fn_symbols) =
                         parse_block_symbols(cursor, &code, true);
 
                     fn_identifiers.extend(fn_block_identifiers);
@@ -174,7 +174,7 @@ fn get_all_block_identifiers(cursor: &mut TreeCursor, code: &String) -> Vec<Stri
             cursor.goto_first_child();
             all_of_kind.push(get_string_at_cursor(cursor, code));
             cursor.goto_parent();
-        } else if (node.child_count() > 0) {
+        } else if node.child_count() > 0 {
             all_of_kind.append(&mut get_all_block_identifiers(cursor, code))
         }
 

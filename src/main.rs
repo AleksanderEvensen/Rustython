@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(unused_variables)]
 
 mod symboltree;
 use tree_sitter::Parser;
