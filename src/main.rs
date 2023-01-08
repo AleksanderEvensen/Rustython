@@ -1,4 +1,6 @@
-use std::default;
+#![allow(unused)]
+
+use std::collections::HashSet;
 
 use tree_sitter::{Parser, TreeCursor};
 
@@ -18,10 +20,11 @@ enum SymbolTreeType {
 
 #[derive(Debug, Clone, Default)]
 struct SymbolTreeEntry {
+    symbol_name: String,
     symbol_type: SymbolTreeType,
     nested: bool,
     has_children: bool,
-    identifiers: Vec<String>,
+    identifiers: HashSet<String>,
     symbols: Vec<SymbolTreeEntry>,
 }
 
@@ -37,57 +40,160 @@ fn main() {
         .parse(&code, None)
         .expect("Failed to parse the python code");
 
-    // println!("{}", ast.root_node().to_sexp());
-
     let mut ast_walker = ast.root_node().walk();
 
     let mut symtree = SymbolTree {
         filename: "main.py".to_string(),
         module_entry: SymbolTreeEntry {
-            has_children: true,
+            symbol_name: "MODULE".to_string(),
+            has_children: false,
             nested: false,
             symbol_type: SymbolTreeType::Module,
             symbols: vec![],
-            identifiers: vec![],
+            identifiers: HashSet::new(),
         },
     };
 
     if ast_walker.node().kind() == "module" {
         let (identifiers, symbols) = parse_block_symbols(&mut ast_walker, &code, false);
+
+        symtree.module_entry.has_children = symbols.len() > 0;
+        symtree.module_entry.identifiers = identifiers;
+        symtree.module_entry.symbols = symbols;
     }
+
+    println!("{symtree:#?}");
+}
+
+fn get_string_at_cursor(cursor: &TreeCursor, code: &String) -> String {
+    let node = cursor.node();
+    code.chars()
+        .skip(node.start_byte())
+        .take(node.end_byte() - node.start_byte())
+        .collect()
 }
 
 fn parse_block_symbols(
     cursor: &mut TreeCursor,
     code: &String,
     nested: bool,
-) -> (Vec<String>, Vec<SymbolTreeEntry>) {
+) -> (HashSet<String>, Vec<SymbolTreeEntry>) {
     cursor.goto_first_child();
 
     let mut symbols = vec![];
-    let mut identifiers = vec![];
+    let mut identifiers: HashSet<String> = HashSet::new();
 
     loop {
         match cursor.node().kind() {
-            "function_definition" => {}
-            "class_definition" => todo!("Implement class block parsing"),
-            "expression_statement" => if cursor.goto_first_child() && cursor.goto_first_child() {},
+            "function_definition" => {
+                cursor.goto_first_child();
+                cursor.goto_next_sibling();
 
-            // Just ignore these, when parsing
-            "comment" => {}
-            v => {
-                todo!("Add implementation for symbol kind '{v}'")
+                let fn_name = get_string_at_cursor(cursor, code);
+
+                identifiers.insert(fn_name.clone());
+
+                cursor.goto_next_sibling();
+
+                let (mut fn_identifiers, _) = parse_block_symbols(cursor, &code, true);
+
+                loop {
+                    if cursor.node().kind() == "block" {
+                        break;
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+                if cursor.node().kind() == "block" {
+                    let (mut fn_block_identifiers, fn_symbols) =
+                        parse_block_symbols(cursor, &code, true);
+
+                    fn_identifiers.extend(fn_block_identifiers);
+
+                    symbols.push(SymbolTreeEntry {
+                        symbol_name: fn_name,
+                        symbol_type: SymbolTreeType::Function,
+                        nested,
+                        has_children: fn_symbols.len() > 0,
+                        identifiers: fn_identifiers,
+                        symbols: fn_symbols,
+                    });
+                }
+
+                cursor.goto_parent();
             }
+            "class_definition" => {
+                cursor.goto_first_child();
+                cursor.goto_next_sibling();
+
+                let class_name = get_string_at_cursor(cursor, code);
+                identifiers.insert(class_name.clone());
+
+                loop {
+                    if cursor.node().kind() == "block" {
+                        break;
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+
+                if cursor.node().kind() == "block" {
+                    let (class_identifiers, class_symbols) =
+                        parse_block_symbols(cursor, code, true);
+
+                    symbols.push(SymbolTreeEntry {
+                        symbol_name: class_name,
+                        symbol_type: SymbolTreeType::Class,
+                        nested,
+                        has_children: symbols.len() > 0,
+                        identifiers: class_identifiers,
+                        symbols: class_symbols,
+                    });
+                }
+
+                cursor.goto_parent();
+            }
+            "decorated_definition" => {
+                todo!("Implement the logic for function decorators")
+            }
+
+            _ => identifiers.extend(get_all_block_identifiers(cursor, &code)),
         }
 
         if !cursor.goto_next_sibling() {
             break;
         }
     }
-
-    while cursor.goto_next_sibling() {}
-
     cursor.goto_parent();
 
     return (identifiers, symbols);
+}
+
+fn get_all_block_identifiers(cursor: &mut TreeCursor, code: &String) -> Vec<String> {
+    let moved_into_child = cursor.goto_first_child();
+    let mut all_of_kind: Vec<String> = vec![];
+    loop {
+        let node = cursor.node();
+
+        if node.kind() == "identifier" {
+            all_of_kind.push(get_string_at_cursor(cursor, code));
+        } else if node.kind() == "default_parameter" {
+            cursor.goto_first_child();
+            all_of_kind.push(get_string_at_cursor(cursor, code));
+            cursor.goto_parent();
+        } else if (node.child_count() > 0) {
+            all_of_kind.append(&mut get_all_block_identifiers(cursor, code))
+        }
+
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    if moved_into_child {
+        cursor.goto_parent();
+    }
+
+    return all_of_kind;
 }
