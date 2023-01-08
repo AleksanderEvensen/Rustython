@@ -1,3 +1,4 @@
+use crate::utils::GetStringFromNode;
 use anyhow::{anyhow, Result};
 use std::collections::HashSet;
 use tree_sitter::{Tree, TreeCursor};
@@ -55,15 +56,6 @@ impl SymbolTree {
         })
     }
 }
-
-fn get_string_at_cursor(cursor: &TreeCursor, code: &String) -> String {
-    let node = cursor.node();
-    code.chars()
-        .skip(node.start_byte())
-        .take(node.end_byte() - node.start_byte())
-        .collect()
-}
-
 fn parse_block_symbols(
     cursor: &mut TreeCursor,
     code: &String,
@@ -80,7 +72,7 @@ fn parse_block_symbols(
                 cursor.goto_first_child();
                 cursor.goto_next_sibling();
 
-                let fn_name = get_string_at_cursor(cursor, code);
+                let fn_name = cursor.node().get_string(code);
 
                 identifiers.insert(fn_name.clone());
 
@@ -118,7 +110,7 @@ fn parse_block_symbols(
                 cursor.goto_first_child();
                 cursor.goto_next_sibling();
 
-                let class_name = get_string_at_cursor(cursor, code);
+                let class_name = cursor.node().get_string(code); //get_string_at_cursor(cursor, code);
                 identifiers.insert(class_name.clone());
 
                 loop {
@@ -169,10 +161,10 @@ fn get_all_block_identifiers(cursor: &mut TreeCursor, code: &String) -> Vec<Stri
         let node = cursor.node();
 
         if node.kind() == "identifier" {
-            all_of_kind.push(get_string_at_cursor(cursor, code));
+            all_of_kind.push(cursor.node().get_string(code));
         } else if node.kind() == "default_parameter" {
             cursor.goto_first_child();
-            all_of_kind.push(get_string_at_cursor(cursor, code));
+            all_of_kind.push(cursor.node().get_string(code));
             cursor.goto_parent();
         } else if node.child_count() > 0 {
             all_of_kind.append(&mut get_all_block_identifiers(cursor, code))
